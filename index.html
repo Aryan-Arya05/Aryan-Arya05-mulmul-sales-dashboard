@@ -1048,11 +1048,11 @@ async function loadStores(){
   $("#stNote").textContent="Loading…"; $("#stBody").innerHTML=`<div class="empty">Loading…</div>`;
   let stores; try { stores = await stStores(); } catch(e){ $("#stNote").textContent=""; $("#stBody").innerHTML=`<div class="empty err">${esc(e.message)}</div>`; return; }
   const sel=$("#stStore");
-  if(!sel.options.length){ sel.innerHTML = `<option value="">All stores</option>` + stores.map(x=>`<option value="${esc(x.code)}">${esc(x.name)}</option>`).join(""); sel.value = stores.find(x=>x.code==="MKM")?"MKM":stores[0]?.code||""; }
+  if(!sel.options.length){ sel.innerHTML = `<option value="">All stores</option>` + stores.map(x=>`<option value="${esc(x.code)}">${esc(x.name)}</option>`).join(""); sel.value = ""; }
   $("#stStore").style.display = view==="matrix" ? "none" : ""; $("#stStatus").style.display = view==="store" ? "" : "none";
   $("#stPreset").style.display = $("#stFrom").style.display = $("#stTo").style.display = $("#stApply").style.display = view==="sets" ? "none" : "";
   try{
-    if(view==="store"){ if(!sel.value){ sel.value = stores[0].code; } S.st = await rpc("dashboard_store",{p_store:sel.value,d_from:a,d_to:b}); renderStore(); }
+    if(view==="store"){ S.st = await rpc("dashboard_store",{p_store:sel.value||null,d_from:a,d_to:b}); renderStore(); }
     else if(view==="matrix"){ S.sm = await rpc("dashboard_store_matrix",{d_from:a,d_to:b,p_limit:80}); renderMatrix(); }
     else { S.sets = await rpc("dashboard_sets",{p_store: sel.value||null}); renderSets(); }
   }catch(e){ $("#stNote").textContent=""; $("#stBody").innerHTML=`<div class="empty err">${esc(e.message)}</div>`; }
@@ -1174,7 +1174,7 @@ $("#stApply").onclick = loadStores;
 $("#stPreset").onchange = () => { if($("#stPreset").value!=="custom") loadStores(); };
 ["stSearch","stCat","stStatus"].forEach(id => $("#"+id).addEventListener("input", () => { const v=$("#stView").value; v==="store"?renderStore():v==="matrix"?renderMatrix():renderSets(); }));
 $("#stExport").onclick = () => { const v=$("#stView").value; const [a,b]=stRange();
-  if(v==="store") exportCsv(`mulmul-store-${$("#stStore").value}-${a}-to-${b}.csv`, [["product_name","Style"],["style_code","Style code"],[r=>title(r.colour),"Colour"],["category","Category"],["status","Status"],["sold","Sold"],["sold_prev","Previous period"],["on_hand","On hand"],[r=>(r.sizes||[]).filter(z=>z.on_hand>0).map(z=>`${z.size}:${z.on_hand}`).join(" "),"Sizes on hand"],[r=>(r.sizes||[]).filter(z=>z.sold>0).map(z=>`${z.size}:${z.sold}`).join(" "),"Sizes sold"],["in_transit","In transit"],["sell_through_pct","Sell-through %"],["rate_since_launch","Units/day since launch"],["cover_days","Cover days"],["last_sale","Last sale"],["launch_date","Launched"]], S._stRows||[]);
+  if(v==="store") exportCsv(`mulmul-store-${$("#stStore").value||"all"}-${a}-to-${b}.csv`, [["product_name","Style"],["style_code","Style code"],[r=>title(r.colour),"Colour"],["category","Category"],["status","Status"],["sold","Sold"],["sold_prev","Previous period"],["on_hand","On hand"],[r=>(r.sizes||[]).filter(z=>z.on_hand>0).map(z=>`${z.size}:${z.on_hand}`).join(" "),"Sizes on hand"],[r=>(r.sizes||[]).filter(z=>z.sold>0).map(z=>`${z.size}:${z.sold}`).join(" "),"Sizes sold"],["in_transit","In transit"],["sell_through_pct","Sell-through %"],["rate_since_launch","Units/day since launch"],["cover_days","Cover days"],["last_sale","Last sale"],["launch_date","Launched"]], S._stRows||[]);
   else if(v==="matrix"){ const rows=S._smRows||[]; const cols=[["product_name","Style"],["style_code","Style code"],[r=>title(r.colour),"Colour"],["category","Category"],["total","Total"]].concat(Object.keys(rows[0]||{}).filter(k=>!["product_name","style_code","colour","category","total"].includes(k)).map(k=>[k,k])); exportCsv(`mulmul-store-matrix-${a}-to-${b}.csv`, cols, rows); }
   else exportCsv(`mulmul-set-completion-${$("#stStore").value||"all"}.csv`, [["top_name","Top"],["bottom_name","Bottom"],["dupatta_name","Dupatta"],[r=>title(r.colour),"Colour"],["store_name","Store"],["complete_sets","Complete sets"],["complete_sizes","Complete sizes"],["missing_bottom","Top without bottom"],["missing_top","Bottom without top"],["no_dupatta_sizes","No dupatta"],["sold_30","Sold 30d"]], S._setRows||[]); };
 document.querySelector('nav button[data-tab="stores"]').addEventListener("click", () => { if(!S.st && !S.sm && !S.sets) loadStores(); });
