@@ -76,7 +76,7 @@ h2 small{display:block;color:var(--muted);font-weight:500;font-size:13px;letter-
 .filters input[type=search]{min-width:240px;padding-left:30px;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23676d7e' stroke-width='2' stroke-linecap='round'><circle cx='11' cy='11' r='7'/><path d='m20 20-3.5-3.5'/></svg>");background-repeat:no-repeat;background-position:9px center}
 .filters input[type=date]{min-width:0}
 .filters input[type=number]{width:64px}
-.filters label.muted{display:inline-flex;align-items:center;gap:6px}
+.filters label.muted{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .filters select:focus,.filters input:focus,.msel>button:focus{border-color:var(--accent);outline:none;background:var(--card)}
 .msel{position:relative;display:inline-block}
 .msel>button{cursor:pointer;text-align:left;min-width:150px;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative;padding-right:28px}
@@ -181,7 +181,8 @@ svg text{font-family:var(--sans);font-size:11px;fill:var(--muted)}
 @media (max-width:560px){
   .cards{grid-template-columns:repeat(2,1fr)}
   .hero{font-size:22px}
-  .filters select,.filters .msel,.filters .msel>button,.filters input[type=date],.filters .btn,.filters label.muted{flex:1 1 calc(50% - 6px);min-width:0;width:auto}
+  .filters select,.filters .msel,.filters .msel>button,.filters input[type=date],.filters .btn{flex:1 1 calc(50% - 6px);min-width:0;width:auto}
+  .filters label.muted{flex:1 1 100%}
   .filters .msel>button{width:100%;min-width:0}
   .filters input[type=date]{font-size:12.5px;padding:0 6px}
   .filters span.muted{display:none}
