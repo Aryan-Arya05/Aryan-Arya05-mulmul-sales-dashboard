@@ -1038,11 +1038,12 @@ function stRange(){ const v=$("#stPreset").value; const today=new Date(); today.
 async function stStores(){ if(S.storeList) return S.storeList; const r = await rpc("dashboard_store_matrix",{d_from:fmtD(new Date()),d_to:fmtD(new Date()),p_limit:1}); S.storeList=r.stores||[]; return S.storeList; }
 async function loadStores(){
   const view=$("#stView").value; const [a,b]=stRange(); $("#stFrom").value=a; $("#stTo").value=b;
-  const stores = await stStores(); const sel=$("#stStore");
+  $("#stNote").textContent="Loading…"; $("#stBody").innerHTML=`<div class="empty">Loading…</div>`;
+  let stores; try { stores = await stStores(); } catch(e){ $("#stNote").textContent=""; $("#stBody").innerHTML=`<div class="empty err">${esc(e.message)}</div>`; return; }
+  const sel=$("#stStore");
   if(!sel.options.length){ sel.innerHTML = `<option value="">All stores</option>` + stores.map(x=>`<option value="${esc(x.code)}">${esc(x.name)}</option>`).join(""); sel.value = stores.find(x=>x.code==="MKM")?"MKM":stores[0]?.code||""; }
   $("#stStore").style.display = view==="matrix" ? "none" : ""; $("#stStatus").style.display = view==="store" ? "" : "none";
   $("#stPreset").style.display = $("#stFrom").style.display = $("#stTo").style.display = $("#stApply").style.display = view==="sets" ? "none" : "";
-  $("#stNote").textContent="Loading…"; $("#stBody").innerHTML=`<div class="empty">Loading…</div>`;
   try{
     if(view==="store"){ if(!sel.value){ sel.value = stores[0].code; } S.st = await rpc("dashboard_store",{p_store:sel.value,d_from:a,d_to:b}); renderStore(); }
     else if(view==="matrix"){ S.sm = await rpc("dashboard_store_matrix",{d_from:a,d_to:b,p_limit:80}); renderMatrix(); }
