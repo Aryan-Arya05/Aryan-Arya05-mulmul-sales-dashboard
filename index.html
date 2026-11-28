@@ -67,6 +67,8 @@ h2 small{display:block;color:var(--muted);font-weight:500;font-size:13px;letter-
 .hero{font-size:30px;font-weight:700;line-height:1.05;margin:6px 0 8px;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
 .hero small{font-size:12px;color:var(--muted);font-weight:500;margin-left:7px;letter-spacing:0}
 .hero.err{color:var(--bad)}
+.card.click{cursor:pointer;transition:border-color .12s,transform .12s}.card.click:hover{border-color:var(--accent);transform:translateY(-1px)}
+.card .cta{margin-top:8px;font-weight:700;color:var(--accent);font-size:12.5px}
 
 /* ---- toolbar / filters ---- */
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0}
@@ -1112,12 +1114,39 @@ function renderSets(){
     <div class="cards">
       <div class="card"><div class="hero num">${n0(sm.complete_sets)}<small>complete sets on shelves</small></div><div class="muted">top + bottom in the same size${sm.no_dupatta_slots?` · ${n0(sm.no_dupatta_slots)} sizes without their dupatta`:""}</div></div>
       <div class="card"><div class="hero num err">${n0((sm.orphan_tops||0)+(sm.orphan_bottoms||0))}<small>orphan pieces</small></div><div class="muted">${n0(sm.orphan_tops)} tops without a bottom · ${n0(sm.orphan_bottoms)} bottoms without a top</div></div>
-      <div class="card"><div class="hero num">${n0((sm.fixable_from_wh_bottom||0)+(sm.fixable_from_wh_top||0))}<small>gaps the warehouse can fill</small></div><div class="muted">${n0(sm.fixable_from_wh_bottom)} need a bottom · ${n0(sm.fixable_from_wh_top)} need a top</div></div>
+      <div class="card click" id="setFillCard" title="Open the transfer list"><div class="hero num">${n0((sm.fixable_from_wh_bottom||0)+(sm.fixable_from_wh_top||0))}<small>gaps the warehouse can fill</small></div><div class="muted">${n0(sm.fixable_from_wh_bottom)} need a bottom · ${n0(sm.fixable_from_wh_top)} need a top</div><div class="cta">Build the transfer list →</div></div>
     </div>
+    <div id="setPlan" style="display:none;margin-top:12px"></div>
     <div class="tw" style="margin-top:12px"><table><thead><tr><th>Set</th><th>Colour</th><th>Store</th><th class="r">Complete sets</th><th>Complete sizes</th><th>Top without bottom</th><th>Bottom without top</th><th>No dupatta</th><th class="r">Sold 30d</th></tr></thead><tbody>${
       rows.slice(0,800).map(r=>`<tr class="click" data-k="${esc(r.top_code)}|${esc(r.colour||"")}"><td><b>${esc(r.top_name)}</b> + ${esc((r.bottom_name||"").replace(/^\S+\s/,""))}${r.dupatta_name?" + dupatta":""}<br><span class="muted num" style="font-size:11px">${esc(r.top_code)} · ${esc(r.bottom_code)}</span></td><td>${esc(title(r.colour))}</td><td>${esc(r.store_name)}</td><td class="r num">${n0(r.complete_sets)}</td><td class="muted">${esc(r.complete_sizes||"–")}</td><td class="${r.missing_bottom?"err":"muted"}">${esc(r.missing_bottom||"–")}</td><td class="${r.missing_top?"err":"muted"}">${esc(r.missing_top||"–")}</td><td class="muted">${esc(r.no_dupatta_sizes||"–")}</td><td class="r num">${n0(r.sold_30)}</td></tr>`).join("") || `<tr><td class="empty" colspan="9">Every set in stock is complete</td></tr>`}</tbody></table></div>
     <p class="muted" style="font-size:12px">A set = top + bottom (+ dupatta where the style has one) of the same family, number and colour. “Orphan” = a size where only one half is on the shelf. “WH has n” means the warehouse holds the missing half in that size.</p>`;
   $("#stBody").querySelectorAll("tr.click").forEach(tr => tr.onclick = () => openSkuMatrix(tr.dataset.k));
+  $("#setFillCard").onclick = openSetFill;
+}
+async function openSetFill(){
+  const P=$("#setPlan"); P.style.display="block"; P.innerHTML=`<div class="card"><span class="muted">Working out which piece completes which set…</span></div>`; P.scrollIntoView({behavior:"smooth",block:"start"});
+  const store=$("#stStore").value||null;
+  let plan; try { plan = await rpc("dashboard_set_fill",{p_store:store}); } catch(e){ P.innerHTML=`<div class="card err">${esc(e.message)}</div>`; return; }
+  const mv=plan.moves||[], sm=plan.summary||{}; S.setFill=mv;
+  const byTo={}; mv.forEach(m=>{ (byTo[m.to_name] ??= {name:m.to_name,code:m.to_code,wh:0,s2s:0,rows:[]}); byTo[m.to_name][m.mode==="wh"?"wh":"s2s"]+=m.qty; byTo[m.to_name].rows.push(m); });
+  const dests=Object.values(byTo).sort((a,b)=>(b.wh+b.s2s)-(a.wh+a.s2s));
+  P.innerHTML = `<div class="card">
+    <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <h3 style="margin:0">Set-completion transfers <span class="muted">· ${store?$("#stStore").selectedOptions[0].text:"all stores"}</span></h3>
+      <div class="row"><button class="btn primary" id="setExportPlan" type="button">Export transfer list (CSV)</button><button class="btn" id="setClosePlan" type="button">Close</button></div>
+    </div>
+    <div class="cards" style="margin-top:10px;grid-template-columns:repeat(auto-fill,minmax(170px,1fr))">
+      <div class="card"><div class="hero num">${n0(sm.units)}<small>pieces to move</small></div><div class="muted">completes ${n0(sm.sets_completed)} sets at ${sm.stores||0} stores</div></div>
+      <div class="card"><div class="hero num">${n0(sm.from_wh)}<small>from the warehouse</small></div><div class="muted">missing half is in Noida / Chhatarpur</div></div>
+      <div class="card"><div class="hero num">${n0(sm.between_stores)}<small>between stores</small></div><div class="muted">${store?"shown only for all stores":"a store with the spare half, selling less of the set"}</div></div>
+      <div class="card"><div class="hero num ${plan.unfillable>0?"err":""}">${n0(plan.unfillable)}<small>orphans with no match</small></div><div class="muted">no stock of the other half anywhere — pairing candidates</div></div>
+    </div>
+    <div class="tw" style="margin-top:12px"><table><thead><tr><th>To</th><th>From</th><th>Send this piece</th><th>Colour</th><th>Size</th><th>SKU</th><th class="r">Qty</th><th>Completes</th></tr></thead><tbody>${
+      mv.length ? dests.map(dst=>`<tr class="grp"><td colspan="6"><b>${esc(dst.name)}</b> <span class="muted">${dst.code}</span></td><td class="r num"><b>${n0(dst.wh+dst.s2s)}</b></td><td class="muted">${dst.wh?`${dst.wh} from WH`:""}${dst.s2s?` · ${dst.s2s} from stores`:""}</td></tr>` +
+        dst.rows.sort((a,b)=>a.product_name.localeCompare(b.product_name)||sIdx(a.size)-sIdx(b.size)).map(m=>`<tr><td></td><td>${esc(m.from_name)}</td><td><b>${esc(m.product_name)}</b></td><td>${esc(title(m.colour))}</td><td>${esc(m.size||"–")}</td><td class="num muted" style="font-size:11px">${esc(m.sku)}</td><td class="r num"><b>${m.qty}</b></td><td class="muted">${esc(m.reason)}</td></tr>`).join("")).join("")
+      : `<tr><td class="empty" colspan="8">Nothing to send — no broken set here has its missing half available anywhere.</td></tr>`}</tbody></table></div></div>`;
+  $("#setClosePlan").onclick = () => { P.style.display="none"; P.innerHTML=""; };
+  $("#setExportPlan").onclick = () => exportCsv(`mulmul-set-completion-transfers-${store||"all"}-${stamp()}.csv`, [["from_code","From"],["from_name","From name"],["to_code","To"],["to_name","To name"],["sku","SKU"],["style_code","Style code"],["product_name","Piece"],[m=>title(m.colour),"Colour"],["size","Size"],["qty","Qty"],["mrp","MRP"],[m=>m.mode==="wh"?"Warehouse → store":"Store → store","Type"],["reason","Completes"]], mv);
 }
 async function openSkuMatrix(key){
   const [style, colour]=key.split("|"); const [a,b]=stRange();
