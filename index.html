@@ -105,7 +105,8 @@ svg text{font-family:var(--sans);font-size:11px;fill:var(--muted)}
 .ans .md p{margin:6px 0}.ans .md ul{margin:4px 0 8px 18px;padding:0}.ans .md li{margin:3px 0}.ans .md b{font-weight:600}
 .ans details{font-size:12px;color:var(--muted);margin-top:8px}
 .ans pre{white-space:pre-wrap;font-family:var(--mono);font-size:11px;background:var(--soft);padding:8px;border-radius:8px}
-.err{color:var(--bad)}
+.err{color:var(--bad)}.good{color:var(--good)}
+tr.grp td{background:var(--bg,#f6f6f4);border-top:2px solid var(--line)}
 .empty{color:var(--muted);padding:20px;text-align:center}
 .muted{color:var(--muted)}
 .right{margin-left:auto}
@@ -157,6 +158,7 @@ svg text{font-family:var(--sans);font-size:11px;fill:var(--muted)}
     <button data-tab="attr">Attributes</button>
     <button data-tab="prod">Production</button>
     <button data-tab="inwards">Inwards</button>
+    <button data-tab="dist">Distribution</button>
     <button data-tab="aging">Aging</button>
     <button data-tab="ask">Ask</button>
   </nav>
@@ -256,6 +258,23 @@ svg text{font-family:var(--sans);font-size:11px;fill:var(--muted)}
     <div class="tw" style="margin-top:12px"><table id="inTable"><tbody><tr><td class="empty">Loading…</td></tr></tbody></table></div>
   </section>
 
+  <section id="dist">
+    <h2>Stock distribution <small>what to move from the warehouse to stores, and between stores — rate of sale since launch × target cover, by size</small></h2>
+    <div class="filters">
+      <input type="search" id="dsSearch" placeholder="One or many: Bela - Dhara, or DCUP2601" style="min-width:260px">
+      <div class="msel" id="dsCat" data-label="All categories"></div>
+      <select id="dsView"><option value="need">Stores short of stock</option><option value="wh">Warehouse has stock</option><option value="surplus">Stock idle at stores</option><option value="launch">New launches (no store sales yet)</option><option value="all">Everything</option></select>
+      <label class="muted">Target cover <input type="number" id="dsDays" value="28" min="7" max="120" style="width:64px"> days</label>
+      <select id="dsMode"><option value="all">All moves</option><option value="wh">Warehouse → store only</option><option value="store">Store → store only</option><option value="launch">New-launch split only</option></select>
+      <button class="btn" id="dsPlanSel" type="button">Plan selected</button>
+      <button class="btn" id="dsPlanTop" type="button">Plan top 40</button>
+      <span class="right muted" id="dsNote"></span>
+      <button class="btn" id="dsExport" type="button">Export overview</button>
+    </div>
+    <div class="cards" id="dsCards"></div>
+    <div id="dsPlan" style="display:none;margin-top:12px"></div>
+    <div class="tw" style="margin-top:12px"><table id="dsTable"><tbody><tr><td class="empty">Loading…</td></tr></tbody></table></div>
+  </section>
   <section id="prod">
     <h2>Production tracker <small>stage from the Replenishment sheet dates · lead benchmark from settings</small></h2>
     <div class="cards" id="prodCards"></div>
@@ -807,6 +826,92 @@ async function openInward(key, since){
     <div class="row" style="margin-top:10px"><button class="btn" id="inSales" type="button">Open sales drill-down for this style →</button></div>`;
   $("#inSales").onclick = () => openDrawer(key);
 }
+
+// ---------- Distribution ----------
+async function loadDist(){
+  $("#dsNote").textContent="Loading…";
+  try { const o = await rpc("dashboard_dist_overview_cached"); S.dist = o.rows||[]; S.distAsOf = o.stock_as_of; S.dsSel = S.dsSel||new Set(); renderDist(); }
+  catch(e){ $("#dsTable").innerHTML=`<tbody><tr><td class="empty err">${esc(e.message)}</td></tr></tbody>`; }
+}
+function dsRows(){
+  const rows0=S.dist||[]; fillSelect($("#dsCat"), rows0.map(r=>r.category), "All categories");
+  const cat=msVal($("#dsCat")), view=$("#dsView").value, terms=$("#dsSearch").value.split(/\s*[-,|]\s*|\s{2,}/).map(t=>t.trim().toLowerCase()).filter(Boolean);
+  const single = terms.length===1 ? terms[0] : null;
+  return rows0.filter(r=>{
+    if(!catOk(cat,r.category)) return false;
+    if(view==="need" && !(r.total_need>0)) return false;
+    if(view==="wh" && !(r.wh_avail>0)) return false;
+    if(view==="surplus" && !(r.total_surplus>0)) return false;
+    if(view==="launch" && !(r.sold===0 && r.wh_avail>0)) return false;
+    if(!terms.length) return true;
+    const h=`${r.product_name} ${r.style_code} ${r.colour||""}`.toLowerCase();
+    if(single) return h.includes(single);
+    return terms.some(t => new RegExp(`(^|[^a-z0-9])${t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")}([^a-z0-9]|$)`).test(h));
+  });
+}
+const dsKey = r => `${r.style_code}|${r.colour||""}`;
+function renderDist(){
+  const rows=dsRows(); S._dsRows=rows;
+  const tot=rows.reduce((t,r)=>{ t.wh+=+r.wh_avail; t.need+=+r.total_need; t.sur+=+r.total_surplus; t.launch+=(r.sold===0&&r.wh_avail>0)?1:0; t.short+=+r.stores_short>0?1:0; return t; },{wh:0,need:0,sur:0,launch:0,short:0});
+  $("#dsNote").textContent = `${rows.length} style-colours · stock as of ${S.distAsOf? new Date(S.distAsOf).toLocaleString("en-IN",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"—"} · cover target 28d in this table`;
+  $("#dsCards").innerHTML = `
+    <div class="card"><div class="hero num">${n0(tot.wh)}<small>pcs in warehouse</small></div><div class="muted">Noida + Chhatarpur physical, ${rows.filter(r=>r.wh_avail>0).length} style-colours</div></div>
+    <div class="card"><div class="hero num ${tot.need>0?"err":""}">${n0(tot.need)}<small>pcs stores are short</small></div><div class="muted">${tot.short} styles with at least one store under 28 days of cover</div></div>
+    <div class="card"><div class="hero num">${n0(tot.sur)}<small>pcs idle at stores</small></div><div class="muted">in stores where the style hasn't sold in 30+ days</div></div>
+    <div class="card"><div class="hero num">${n0(tot.launch)}<small>new launches to split</small></div><div class="muted">warehouse stock, no store sales yet</div></div>`;
+  const chk = r => `<input type="checkbox" class="dsck" data-k="${esc(dsKey(r))}" ${S.dsSel.has(dsKey(r))?"checked":""}>`;
+  $("#dsTable").innerHTML = `<thead><tr><th><input type="checkbox" id="dsAll" title="select all shown"></th><th>Style</th><th>Colour</th><th>Category</th><th>Launched</th><th class="r" title="Noida + Chhatarpur physical stock">Warehouse</th><th class="r">At stores</th><th class="r">In transit</th><th class="r">Sold 30d</th><th class="r" title="stores that have sold it / stores holding it">Selling / stocked</th><th class="r" title="stores below the cover target">Stores short</th><th class="r" title="units needed to bring every selling store to target cover">Need</th><th class="r" title="units sitting in stores where it isn't selling">Idle</th></tr></thead><tbody>` +
+    (rows.length ? rows.slice(0,600).map(r=>`<tr class="click" data-k="${esc(dsKey(r))}"><td onclick="event.stopPropagation()">${chk(r)}</td><td><b>${esc(r.product_name||"")}</b><br><span class="muted num" style="font-size:11px">${esc(r.style_code)}</span></td><td>${esc(title(r.colour))}</td><td class="muted">${esc(r.category||"")}</td><td class="num">${r.launch_date?d(r.launch_date):"<span class='muted'>no sales</span>"}</td><td class="r num"><b>${n0(r.wh_avail)}</b></td><td class="r num">${n0(r.store_on_hand)}</td><td class="r num muted">${n0(r.in_transit)}</td><td class="r num">${n0(r.sold_30)}</td><td class="r num muted">${r.stores_selling} / ${r.stores_stocked}</td><td class="r num">${r.stores_short||"–"}</td><td class="r num ${r.total_need>0?"err":""}"><b>${n0(r.total_need)}</b></td><td class="r num">${r.total_surplus?n0(r.total_surplus):"–"}</td></tr>`).join("") : `<tr><td class="empty" colspan="13">Nothing matches</td></tr>`) + `</tbody>` + (rows.length>600?`<tfoot><tr><td colspan="13" class="muted">Showing 600 of ${rows.length} — narrow the search</td></tr></tfoot>`:"");
+  $("#dsTable").querySelectorAll("tr.click").forEach(tr => tr.onclick = () => openDistPlan([tr.dataset.k]));
+  $("#dsTable").querySelectorAll(".dsck").forEach(c => c.onchange = () => { c.checked ? S.dsSel.add(c.dataset.k) : S.dsSel.delete(c.dataset.k); $("#dsPlanSel").textContent = `Plan selected (${S.dsSel.size})`; });
+  $("#dsAll").onchange = e => { rows.slice(0,600).forEach(r => e.target.checked ? S.dsSel.add(dsKey(r)) : S.dsSel.delete(dsKey(r))); renderDist(); };
+  $("#dsPlanSel").textContent = `Plan selected (${S.dsSel.size})`;
+}
+["dsSearch","dsCat","dsView"].forEach(id => $("#"+id).addEventListener("input", renderDist));
+$("#dsPlanSel").onclick = () => S.dsSel.size ? openDistPlan([...S.dsSel]) : alert("Tick one or more styles first");
+$("#dsPlanTop").onclick = () => openDistPlan((S._dsRows||[]).slice(0,40).map(dsKey));
+$("#dsExport").onclick = () => exportCsv(`mulmul-distribution-overview-${stamp()}.csv`, [["product_name","Style"],["style_code","Style code"],[r=>title(r.colour),"Colour"],["category","Category"],["launch_date","Launched"],["wh_avail","Warehouse"],["store_on_hand","At stores"],["in_transit","In transit"],["sold_30","Sold 30d"],["stores_selling","Stores selling"],["stores_stocked","Stores stocked"],["stores_short","Stores short"],["total_need","Need"],["total_surplus","Idle"]], S._dsRows||[]);
+
+async function openDistPlan(keys){
+  const P=$("#dsPlan"); P.style.display="block"; P.innerHTML=`<div class="card"><span class="muted">Planning ${keys.length} style-colour${keys.length>1?"s":""}…</span></div>`; P.scrollIntoView({behavior:"smooth",block:"start"});
+  const days=Math.max(7,Math.min(120,+$("#dsDays").value||28)), mode=$("#dsMode").value;
+  let plan; try { plan = await rpc("dashboard_dist_plan",{p_keys:keys,p_target_days:days,p_mode:mode}); } catch(e){ P.innerHTML=`<div class="card err">${esc(e.message)}</div>`; return; }
+  S.distPlan = plan; S.distPlanKeys = keys;
+  const mv=plan.moves||[], hl=plan.health||[];
+  const u = m => mv.filter(x=>x.mode===m).reduce((t,x)=>t+x.qty,0);
+  const byTo={}; mv.forEach(m=>{ (byTo[m.to_name] ??= {name:m.to_name, code:m.to_code, wh:0, s2s:0, launch:0, rows:[]}); byTo[m.to_name][m.mode==="store"?"s2s":m.mode]+=m.qty; byTo[m.to_name].rows.push(m); });
+  const dests=Object.values(byTo).sort((a,b)=>(b.wh+b.s2s+b.launch)-(a.wh+a.s2s+a.launch));
+  const byFrom={}; mv.filter(m=>m.mode==="store").forEach(m=>{ byFrom[m.from_name]=(byFrom[m.from_name]||0)+m.qty; });
+  const one = keys.length===1;
+  const sizeOrder=["XXS","XS","S","M","L","XL","XXL","2XL","3XL","4XL","5XL"]; const so = x => (sizeOrder.indexOf((x||"").toUpperCase())+1)||99;
+  const sizes=(plan.sizes||[]).slice().sort((a,b)=>so(a.size)-so(b.size));
+  const hlSorted = hl.slice().sort((a,b)=>(b.need||0)-(a.need||0) || b.sold-a.sold);
+  P.innerHTML = `
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h3 style="margin:0">Transfer plan <span class="muted">· ${keys.length} style-colour${one?"":"s"} · ${days}-day cover · ${mode==="all"?"all moves":mode==="wh"?"warehouse → store":mode==="store"?"store → store":"new-launch split"}</span></h3>
+        <div class="row"><button class="btn" id="dsExportPlan" type="button">Export transfer plan (CSV)</button><button class="btn" id="dsClosePlan" type="button">Close</button></div>
+      </div>
+      <div class="cards" style="margin-top:10px;grid-template-columns:repeat(auto-fill,minmax(170px,1fr))">
+        <div class="card"><div class="hero num">${n0(mv.reduce((t,x)=>t+x.qty,0))}<small>pcs to move</small></div><div class="muted">${mv.length} SKU lines · ${dests.length} destinations</div></div>
+        <div class="card"><div class="hero num">${n0(u("wh"))}<small>warehouse → store</small></div><div class="muted">to stores already selling it</div></div>
+        <div class="card"><div class="hero num">${n0(u("store"))}<small>store → store</small></div><div class="muted">from ${Object.keys(byFrom).length} donor stores</div></div>
+        <div class="card"><div class="hero num">${n0(u("launch"))}<small>new-launch split</small></div><div class="muted">by store's share of the category</div></div>
+      </div>
+      ${one ? `<div class="grid2" style="margin-top:12px">
+        <div class="chart"><h3>Store picture</h3><div class="tw"><table><thead><tr><th>Store</th><th class="r">On hand</th><th class="r">Transit</th><th class="r">Sold</th><th class="r">/day</th><th class="r">Cover</th><th class="r">Need</th><th class="r">Idle</th><th class="r">In</th><th class="r">Out</th></tr></thead><tbody>${hlSorted.map(h=>`<tr><td>${esc(h.store_name)}</td><td class="r num">${n0(h.on_hand)}</td><td class="r num muted">${h.in_transit||"–"}</td><td class="r num">${n0(h.sold)}</td><td class="r num">${h.rate}</td><td class="r num ${h.cover_days!=null&&h.cover_days<days?"err":""}">${h.cover_days!=null?h.cover_days+"d":"–"}</td><td class="r num">${h.need||"–"}</td><td class="r num">${h.surplus||"–"}</td><td class="r num good">${h.incoming?"+"+h.incoming:"–"}</td><td class="r num err">${h.outgoing?"−"+h.outgoing:"–"}</td></tr>`).join("")}</tbody></table></div></div>
+        <div class="chart"><h3>Sizes</h3><div class="tw"><table><thead><tr><th>Size</th><th class="r">Sold</th><th class="r">Share</th><th class="r">Warehouse</th><th class="r">At stores</th></tr></thead><tbody>${sizes.map(x=>`<tr><td>${esc(x.size||"–")}</td><td class="r num">${n0(x.sold)}</td><td class="r num muted">${x.share_pct}%</td><td class="r num">${n0(x.wh_avail)}</td><td class="r num">${n0(x.store_on_hand)}</td></tr>`).join("")}</tbody></table></div>
+          <p class="muted" style="font-size:12px;margin:10px 0 0">Need per store = that store's rate of sale since launch × size share × ${days} days − stock on hand − in transit. Warehouse stock is split in proportion to need; what's still short is pulled from stores holding the size without having sold the style in 30+ days (same city first). New launches with no sales are split by each store's share of the category's last-90-day sales.</p></div>
+      </div>` : ""}
+      <div class="tw" style="margin-top:12px"><table><thead><tr><th>To</th><th>From</th><th>Style</th><th>Colour</th><th>Size</th><th>SKU</th><th class="r">Qty</th><th>Why</th></tr></thead><tbody>${
+        mv.length ? dests.map(dst=>`<tr class="grp"><td colspan="6"><b>${esc(dst.name)}</b> <span class="muted">${dst.code}</span></td><td class="r num"><b>${n0(dst.wh+dst.s2s+dst.launch)}</b></td><td class="muted">${dst.wh?`${dst.wh} from WH`:""}${dst.s2s?` · ${dst.s2s} from stores`:""}${dst.launch?` · ${dst.launch} launch`:""}</td></tr>` +
+          dst.rows.sort((a,b)=>a.product_name.localeCompare(b.product_name)||so(a.size)-so(b.size)).map(m=>`<tr><td></td><td>${esc(m.from_name)}</td><td>${esc(m.product_name)}</td><td>${esc(title(m.colour))}</td><td>${esc(m.size||"–")}</td><td class="num muted" style="font-size:11px">${esc(m.sku)}</td><td class="r num"><b>${m.qty}</b></td><td class="muted">${esc(m.reason)}</td></tr>`).join("")).join("")
+        : `<tr><td class="empty" colspan="8">Nothing to move for ${one?"this style":"these styles"} at ${days}-day cover — stores are covered, or the warehouse and donor stores have nothing of the sizes that are short.</td></tr>`}</tbody></table></div>
+    </div>`;
+  $("#dsClosePlan").onclick = () => { P.style.display="none"; P.innerHTML=""; };
+  $("#dsExportPlan").onclick = () => exportCsv(`mulmul-transfer-plan-${stamp()}.csv`, [["from_code","From"],["from_name","From name"],["to_code","To"],["to_name","To name"],["sku","SKU"],["style_code","Style code"],["product_name","Style"],[m=>title(m.colour),"Colour"],["size","Size"],["qty","Qty"],["mrp","MRP"],[m=>m.mode==="wh"?"Warehouse → store":m.mode==="store"?"Store → store":"New launch","Type"],["reason","Reason"]], mv);
+}
+document.querySelector('nav button[data-tab="dist"]').addEventListener("click", () => { if(!S.dist) loadDist(); });
 document.querySelector('nav button[data-tab="inwards"]').addEventListener("click", () => { if(!S.inwards) { const [a,b]=inRange(); $("#inFrom").value=a; $("#inTo").value=b; loadInwards(); } });
 
 // ---------- Ask ----------
