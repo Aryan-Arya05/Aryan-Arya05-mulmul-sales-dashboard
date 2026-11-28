@@ -881,7 +881,7 @@ async function openInward(key, since){
 async function loadDist(){
   $("#dsNote").textContent="Loading…";
   try { const o = await rpc("dashboard_dist_overview_cached"); S.dist = o.rows||[]; S.distAsOf = o.stock_as_of; S.dsSel = S.dsSel||new Set(); renderDist(); }
-  catch(e){ $("#dsTable").innerHTML=`<tbody><tr><td class="empty err">${esc(e.message)}</td></tr></tbody>`; }
+  catch(e){ $("#dsNote").textContent=""; $("#dsTable").innerHTML=`<tbody><tr><td class="empty err">${esc(e.message)}</td></tr></tbody>`; }
 }
 function dsRows(){
   const rows0=S.dist||[]; fillSelect($("#dsCat"), rows0.map(r=>r.category), "All categories");
