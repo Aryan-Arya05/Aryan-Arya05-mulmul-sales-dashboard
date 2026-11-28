@@ -868,7 +868,7 @@ function renderDist(){
   $("#dsPlanSel").textContent = `Plan selected (${S.dsSel.size})`;
 }
 ["dsSearch","dsCat","dsView"].forEach(id => $("#"+id).addEventListener("input", renderDist));
-$("#dsPlanSel").onclick = () => S.dsSel.size ? openDistPlan([...S.dsSel]) : alert("Tick one or more styles first");
+$("#dsPlanSel").onclick = () => S.dsSel.size ? openDistPlan([...S.dsSel].slice(0,120)) : alert("Tick one or more styles first");
 $("#dsPlanTop").onclick = () => openDistPlan((S._dsRows||[]).slice(0,40).map(dsKey));
 $("#dsExport").onclick = () => exportCsv(`mulmul-distribution-overview-${stamp()}.csv`, [["product_name","Style"],["style_code","Style code"],[r=>title(r.colour),"Colour"],["category","Category"],["launch_date","Launched"],["wh_avail","Warehouse"],["store_on_hand","At stores"],["in_transit","In transit"],["sold_30","Sold 30d"],["stores_selling","Stores selling"],["stores_stocked","Stores stocked"],["stores_short","Stores short"],["total_need","Need"],["total_surplus","Idle"]], S._dsRows||[]);
 
