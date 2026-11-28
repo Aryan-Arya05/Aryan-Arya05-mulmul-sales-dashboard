@@ -109,6 +109,8 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--soft)}
 td b{font-weight:700}
 tr.grp td{background:var(--soft);border-top:2px solid var(--line);font-size:12.5px}
 tfoot td{color:var(--muted);font-size:12px;background:var(--soft2)}
+table.matrix th,table.matrix td{padding:6px 7px;font-size:12px}
+table.matrix thead th{white-space:normal;line-height:1.2;vertical-align:bottom}
 
 .thumb{width:34px;height:44px;object-fit:cover;border-radius:4px;background:var(--soft);display:block}
 .spark{vertical-align:middle}
@@ -237,6 +239,7 @@ svg text{font-family:var(--sans);font-size:11px;fill:var(--muted)}
     <button data-tab="prod">Production</button>
     <button data-tab="inwards">Inwards</button>
     <button data-tab="dist">Distribution</button>
+    <button data-tab="stores">Stores</button>
     <button data-tab="aging">Aging</button>
     <button data-tab="ask">Ask</button>
   </nav>
@@ -353,6 +356,22 @@ svg text{font-family:var(--sans);font-size:11px;fill:var(--muted)}
     <div class="cards" id="dsCards"></div>
     <div id="dsPlan" style="display:none;margin-top:12px"></div>
     <div class="tw" style="margin-top:12px"><table id="dsTable"><tbody><tr><td class="empty">Loading…</td></tr></tbody></table></div>
+  </section>
+  <section id="stores">
+    <h2>Stores <small>one store at a time: what is selling, what is sitting, sell-through — plus store × style and size × store views, and set completion</small></h2>
+    <div class="filters">
+      <select id="stView"><option value="store">Store dashboard</option><option value="matrix">Store × style matrix</option><option value="sets">Set completion</option></select>
+      <select id="stStore"></select>
+      <select id="stPreset"><option value="30">Last 30 days</option><option value="7">Last 7 days</option><option value="14">Last 14 days</option><option value="90">Last 90 days</option><option value="tm">This month</option><option value="lm">Last month</option><option value="custom">Custom</option></select>
+      <input type="date" id="stFrom"><span class="muted">to</span><input type="date" id="stTo">
+      <button class="btn" id="stApply" type="button">Apply</button>
+      <input type="search" id="stSearch" placeholder="Filter styles: Bela - Dhara, or a code">
+      <div class="msel" id="stCat" data-label="All categories"></div>
+      <select id="stStatus"><option value="">All statuses</option><option>moving</option><option>not moving</option><option>sold out</option><option>new / slow</option></select>
+      <span class="right muted" id="stNote"></span>
+      <button class="btn" id="stExport" type="button">Export CSV</button>
+    </div>
+    <div id="stBody"><div class="empty">Loading…</div></div>
   </section>
   <section id="prod">
     <h2>Production tracker <small>stage from the Replenishment sheet dates · lead benchmark from settings</small></h2>
@@ -1001,12 +1020,128 @@ async function openDistPlan(keys){
     prod:'<path d="M3 21V9l6 4V9l6 4V5l6 3v13z"/>',
     inwards:'<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 17v3h16v-3"/>',
     dist:'<circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M7 6h10M6.5 7.7 10.7 16M17.5 7.7 13.3 16"/>',
+    stores:'<path d="M3 10 5 4h14l2 6"/><path d="M3 10h18v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0z"/><path d="M5 14v6h14v-6M10 20v-4h4v4"/>',
     aging:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     ask:'<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-5A8 8 0 1 1 21 12z"/><path d="M12 8.5a2 2 0 0 1 2 2c0 1.5-2 1.5-2 3M12 16.5h.01"/>'
   };
   document.querySelectorAll("nav button[data-tab]").forEach(b => { const k=b.dataset.tab; if(I[k]) b.insertAdjacentHTML("afterbegin", `<svg viewBox="0 0 24 24" aria-hidden="true">${I[k]}</svg>`); });
-  ["ovApply","ppApply","inApply","dsPlanSel","dsPlanTop","collApply"].forEach(id => { const b=document.getElementById(id); if(b) b.classList.add("primary"); });
+  ["ovApply","ppApply","inApply","dsPlanSel","dsPlanTop","collApply","stApply","smApply","setApply"].forEach(id => { const b=document.getElementById(id); if(b) b.classList.add("primary"); });
 })();
+
+// ---------- Stores ----------
+const SIZE_ORDER=["XXS","XS","S","M","L","XL","XXL","2XL","3XL","4XL","5XL","FREE","-"]; const sIdx = x => { const i=SIZE_ORDER.indexOf(String(x||"-").toUpperCase()); return i<0?50:i; };
+function stRange(){ const v=$("#stPreset").value; const today=new Date(); today.setHours(0,0,0,0);
+  if(v==="custom") return [$("#stFrom").value, $("#stTo").value];
+  if(v==="tm"){ return [fmtD(new Date(today.getFullYear(),today.getMonth(),1)), fmtD(today)]; }
+  if(v==="lm"){ return [fmtD(new Date(today.getFullYear(),today.getMonth()-1,1)), fmtD(new Date(today.getFullYear(),today.getMonth(),0))]; }
+  return [fmtD(new Date(today.getTime()-(+v-1)*86400000)), fmtD(today)]; }
+async function stStores(){ if(S.storeList) return S.storeList; const r = await rpc("dashboard_store_matrix",{d_from:fmtD(new Date()),d_to:fmtD(new Date()),p_limit:1}); S.storeList=r.stores||[]; return S.storeList; }
+async function loadStores(){
+  const view=$("#stView").value; const [a,b]=stRange(); $("#stFrom").value=a; $("#stTo").value=b;
+  const stores = await stStores(); const sel=$("#stStore");
+  if(!sel.options.length){ sel.innerHTML = `<option value="">All stores</option>` + stores.map(x=>`<option value="${esc(x.code)}">${esc(x.name)}</option>`).join(""); sel.value = stores.find(x=>x.code==="MKM")?"MKM":stores[0]?.code||""; }
+  $("#stStore").style.display = view==="matrix" ? "none" : ""; $("#stStatus").style.display = view==="store" ? "" : "none";
+  $("#stPreset").style.display = $("#stFrom").style.display = $("#stTo").style.display = $("#stApply").style.display = view==="sets" ? "none" : "";
+  $("#stNote").textContent="Loading…"; $("#stBody").innerHTML=`<div class="empty">Loading…</div>`;
+  try{
+    if(view==="store"){ if(!sel.value){ sel.value = stores[0].code; } S.st = await rpc("dashboard_store",{p_store:sel.value,d_from:a,d_to:b}); renderStore(); }
+    else if(view==="matrix"){ S.sm = await rpc("dashboard_store_matrix",{d_from:a,d_to:b,p_limit:80}); renderMatrix(); }
+    else { S.sets = await rpc("dashboard_sets",{p_store: sel.value||null}); renderSets(); }
+  }catch(e){ $("#stNote").textContent=""; $("#stBody").innerHTML=`<div class="empty err">${esc(e.message)}</div>`; }
+}
+const termsOf = v => v.split(/\s*[-,|]\s*|\s{2,}/).map(t=>t.trim().toLowerCase()).filter(Boolean);
+const matchTerms = (h, terms) => !terms.length || (terms.length===1 ? h.includes(terms[0]) : terms.some(t => new RegExp(`(^|[^a-z0-9])${t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")}([^a-z0-9]|$)`).test(h)));
+function renderStore(){
+  const st=S.st; if(!st) return; const k=st.kpi||{}, rows0=st.rows||[];
+  fillSelect($("#stCat"), rows0.map(r=>r.category), "All categories");
+  const cat=msVal($("#stCat")), status=$("#stStatus").value, terms=termsOf($("#stSearch").value);
+  const rows=rows0.filter(r=>catOk(cat,r.category) && (!status||r.status===status) && matchTerms(`${r.product_name} ${r.style_code} ${r.colour||""}`.toLowerCase(), terms));
+  S._stRows=rows;
+  const delta = k.units_prev ? Math.round((k.units-k.units_prev)/k.units_prev*100) : null;
+  $("#stNote").textContent = `${st.store?.display_name||""} · ${d(st.period.from)} – ${d(st.period.to)} · ${rows.length} styles`;
+  const daily=(st.daily||[]).map(x=>({label:d(x.sale_date),a:+x.units,b:0}));
+  const cats=(st.categories||[]).filter(c=>c.sold>0||c.on_hand>0).slice(0,12).map(c=>({label:c.category||"(none)",a:+c.sold,b:+c.on_hand}));
+  const sizes=(st.sizes||[]).slice().sort((x,y)=>sIdx(x.size)-sIdx(y.size)).map(x=>({label:x.size,a:+x.sold,b:+x.on_hand}));
+  const chip = s => s==="moving"?`<span class="chip good">Moving</span>`: s==="not moving"?`<span class="chip bad">Not moving</span>`: s==="sold out"?`<span class="chip warn">Sold out</span>`: s==="new / slow"?`<span class="chip none">New / slow</span>`:"";
+  $("#stBody").innerHTML = `
+    <div class="cards">
+      <div class="card"><div class="hero num">${n0(k.units)}<small>units sold</small></div><div class="muted">${delta==null?"no prior period":`<span class="trend ${delta>=0?"up":"down"}">${delta>=0?"▲":"▼"} ${Math.abs(delta)}%</span> vs previous ${st.period.days} days`} · ₹${n0(Math.round(k.value||0))}</div></div>
+      <div class="card"><div class="hero num">${k.sell_through_pct??"–"}%<small>sell-through</small></div><div class="muted">sold ÷ (sold + on hand now)</div></div>
+      <div class="card"><div class="hero num">${n0(k.on_hand)}<small>units on hand</small></div><div class="muted">${n0(k.styles_stocked)} styles · ${n0(k.in_transit)} in transit</div></div>
+      <div class="card"><div class="hero num ${k.units_not_moving>0?"err":""}">${n0(k.units_not_moving)}<small>units not moving</small></div><div class="muted">${n0(k.styles_not_moving)} styles, no sale in 30+ days</div></div>
+      <div class="card"><div class="hero num">${n0(k.styles_sold)}<small>styles sold</small></div><div class="muted">${n0(k.styles_sold_out)} sold out here</div></div>
+    </div>
+    <div class="grid2" style="margin-top:12px">
+      <div class="chart"><h3>Units per day</h3>${barsSvg(daily,{h:180,stack:false})}</div>
+      <div class="chart"><h3>Categories — sold vs on hand</h3><div class="legend"><span><i style="background:var(--online)"></i>Sold</span><span><i style="background:var(--store)"></i>On hand</span></div>${hbarsSvg(cats)}</div>
+      <div class="chart"><h3>Sizes — sold vs on hand</h3><div class="legend"><span><i style="background:var(--online)"></i>Sold</span><span><i style="background:var(--store)"></i>On hand</span></div>${barsSvg(sizes,{h:180})}</div>
+      <div class="chart"><h3>Top 10 here</h3><div class="tw" style="border:0"><table><tbody>${rows0.slice(0,10).map(r=>`<tr class="click" data-k="${esc(r.style_code)}|${esc(r.colour||"")}"><td><b>${esc(r.product_name)}</b> <span class="muted">${esc(title(r.colour))}</span></td><td class="r num"><b>${n0(r.sold)}</b></td><td class="r num muted">${n0(r.on_hand)} oh</td></tr>`).join("")}</tbody></table></div></div>
+    </div>
+    <div class="tw" style="margin-top:12px"><table id="stTable"><thead><tr><th>Style</th><th>Colour</th><th>Category</th><th>Status</th><th class="r">Sold</th><th class="r" title="same length period before">Prev</th><th class="r">On hand</th><th class="r">Transit</th><th class="r" title="sold ÷ (sold + on hand)">Sell-thru</th><th class="r" title="units per day since launch at this store">/day</th><th class="r">Cover</th><th>Last sale</th><th>Launched</th></tr></thead><tbody>${
+      rows.map(r=>`<tr class="click" data-k="${esc(r.style_code)}|${esc(r.colour||"")}"><td><b>${esc(r.product_name||"")}</b><br><span class="muted num" style="font-size:11px">${esc(r.style_code)}</span></td><td>${esc(title(r.colour))}</td><td class="muted">${esc(r.category||"")}</td><td>${chip(r.status)}</td><td class="r num"><b>${n0(r.sold)}</b></td><td class="r num muted">${n0(r.sold_prev)}</td><td class="r num">${n0(r.on_hand)}</td><td class="r num muted">${r.in_transit||"–"}</td><td class="r num">${r.sell_through_pct!=null?r.sell_through_pct+"%":"–"}</td><td class="r num">${r.rate_since_launch||"–"}</td><td class="r num ${r.cover_days!=null&&r.cover_days>90?"err":""}">${r.cover_days!=null?r.cover_days+"d":"–"}</td><td class="num">${r.last_sale?d(r.last_sale):"<span class='muted'>never</span>"}</td><td class="num muted">${r.launch_date?d(r.launch_date):""}</td></tr>`).join("") || `<tr><td class="empty" colspan="13">Nothing matches</td></tr>`}</tbody></table></div>`;
+  $("#stBody").querySelectorAll("tr.click").forEach(tr => tr.onclick = () => openSkuMatrix(tr.dataset.k));
+}
+function renderMatrix(){
+  const m=S.sm; if(!m) return; const terms=termsOf($("#stSearch").value); const cat=msVal($("#stCat"));
+  fillSelect($("#stCat"), (m.styles||[]).map(x=>x.category), "All categories");
+  const styles=(m.styles||[]).filter(x=>catOk(cat,x.category)&&matchTerms(`${x.product_name} ${x.style_code} ${x.colour||""}`.toLowerCase(),terms));
+  const stores=m.stores||[]; const cell={}; (m.cells||[]).forEach(c=>{ cell[c.k+"@"+c.store]=c; });
+  const storeTot={}; stores.forEach(s=>storeTot[s.code]=0); styles.forEach(x=>{ const k=`${x.style_code}|${x.colour||""}`; stores.forEach(s=>{ storeTot[s.code]+=cell[k+"@"+s.code]?.sold||0; }); });
+  const ordered=stores.slice().sort((a,b)=>storeTot[b.code]-storeTot[a.code]);
+  const max=Math.max(1,...Object.values(cell).map(c=>c.sold||0));
+  S._smRows = styles.map(x=>{ const k=`${x.style_code}|${x.colour||""}`; const o={product_name:x.product_name,style_code:x.style_code,colour:x.colour,category:x.category,total:x.total}; ordered.forEach(s=>{ const c=cell[k+"@"+s.code]; o[s.name]=c?`${c.sold}/${c.on_hand}`:""; }); return o; });
+  $("#stNote").textContent = `${d($("#stFrom").value)} – ${d($("#stTo").value)} · top ${styles.length} styles by units · cell = sold / on hand`;
+  $("#stBody").innerHTML = `<div class="tw"><table class="matrix"><thead><tr><th style="position:sticky;left:0;z-index:3">Style</th><th class="r">Total</th>${ordered.map(s=>`<th class="r" title="${esc(s.city||"")}">${esc(s.name.replace(/^(DLF|Bangalore) /,"").slice(0,12))}<br><span class="muted">${n0(storeTot[s.code])}</span></th>`).join("")}</tr></thead><tbody>${
+    styles.map(x=>{ const k=`${x.style_code}|${x.colour||""}`; return `<tr class="click" data-k="${esc(k)}"><td style="position:sticky;left:0;background:var(--card);z-index:1"><b>${esc(x.product_name)}</b> <span class="muted">${esc(title(x.colour))}</span></td><td class="r num"><b>${n0(x.total)}</b></td>${ordered.map(s=>{ const c=cell[k+"@"+s.code]; const v=c?.sold||0, oh=c?.on_hand||0; const bg=v?`background:rgba(52,81,178,${(0.12+0.5*v/max).toFixed(2)});color:${v/max>0.5?"#fff":"inherit"}`:(oh?"background:var(--soft2)":""); return `<td class="r num" style="${bg}" title="${esc(s.name)}: sold ${v}, on hand ${oh}">${v||(oh?`<span class="muted">·${oh}</span>`:"")}</td>`; }).join("")}</tr>`; }).join("") || `<tr><td class="empty" colspan="${ordered.length+2}">No store sales in this period</td></tr>`}</tbody></table></div>
+    <p class="muted" style="font-size:12px">Shaded = units sold in the period (darker = more). Grey “·n” = stocked but nothing sold. Click a row for the size × store breakdown.</p>`;
+  $("#stBody").querySelectorAll("tr.click").forEach(tr => tr.onclick = () => openSkuMatrix(tr.dataset.k));
+}
+function renderSets(){
+  const z=S.sets; if(!z) return; const sm=z.summary||{}; const terms=termsOf($("#stSearch").value); const cat=msVal($("#stCat"));
+  const rows=(z.rows||[]).filter(r=>matchTerms(`${r.top_name} ${r.bottom_name} ${r.set_key} ${r.colour||""} ${r.store_name}`.toLowerCase(),terms));
+  S._setRows=rows;
+  $("#stNote").textContent = `${$("#stStore").value?$("#stStore").selectedOptions[0].text:"All stores"} · ${rows.length} sets with a gap`;
+  $("#stBody").innerHTML = `
+    <div class="cards">
+      <div class="card"><div class="hero num">${n0(sm.complete_sets)}<small>complete sets on shelves</small></div><div class="muted">top + bottom in the same size${sm.no_dupatta_slots?` · ${n0(sm.no_dupatta_slots)} sizes without their dupatta`:""}</div></div>
+      <div class="card"><div class="hero num err">${n0((sm.orphan_tops||0)+(sm.orphan_bottoms||0))}<small>orphan pieces</small></div><div class="muted">${n0(sm.orphan_tops)} tops without a bottom · ${n0(sm.orphan_bottoms)} bottoms without a top</div></div>
+      <div class="card"><div class="hero num">${n0((sm.fixable_from_wh_bottom||0)+(sm.fixable_from_wh_top||0))}<small>gaps the warehouse can fill</small></div><div class="muted">${n0(sm.fixable_from_wh_bottom)} need a bottom · ${n0(sm.fixable_from_wh_top)} need a top</div></div>
+    </div>
+    <div class="tw" style="margin-top:12px"><table><thead><tr><th>Set</th><th>Colour</th><th>Store</th><th class="r">Complete sets</th><th>Complete sizes</th><th>Top without bottom</th><th>Bottom without top</th><th>No dupatta</th><th class="r">Sold 30d</th></tr></thead><tbody>${
+      rows.slice(0,800).map(r=>`<tr class="click" data-k="${esc(r.top_code)}|${esc(r.colour||"")}"><td><b>${esc(r.top_name)}</b> + ${esc((r.bottom_name||"").replace(/^\S+\s/,""))}${r.dupatta_name?" + dupatta":""}<br><span class="muted num" style="font-size:11px">${esc(r.top_code)} · ${esc(r.bottom_code)}</span></td><td>${esc(title(r.colour))}</td><td>${esc(r.store_name)}</td><td class="r num">${n0(r.complete_sets)}</td><td class="muted">${esc(r.complete_sizes||"–")}</td><td class="${r.missing_bottom?"err":"muted"}">${esc(r.missing_bottom||"–")}</td><td class="${r.missing_top?"err":"muted"}">${esc(r.missing_top||"–")}</td><td class="muted">${esc(r.no_dupatta_sizes||"–")}</td><td class="r num">${n0(r.sold_30)}</td></tr>`).join("") || `<tr><td class="empty" colspan="9">Every set in stock is complete</td></tr>`}</tbody></table></div>
+    <p class="muted" style="font-size:12px">A set = top + bottom (+ dupatta where the style has one) of the same family, number and colour. “Orphan” = a size where only one half is on the shelf. “WH has n” means the warehouse holds the missing half in that size.</p>`;
+  $("#stBody").querySelectorAll("tr.click").forEach(tr => tr.onclick = () => openSkuMatrix(tr.dataset.k));
+}
+async function openSkuMatrix(key){
+  const [style, colour]=key.split("|"); const [a,b]=stRange();
+  $("#scrim").classList.add("on"); const D=$("#drawer"); D.classList.add("on");
+  D.innerHTML = `<div class="head"><div><h2 style="margin:0">${esc(style)} <span class="muted">${esc(title(colour))}</span></h2><div class="muted">Size × store · sold ${d(a)} – ${d(b)} / on hand now</div></div><button class="x" id="dx">Close</button></div><div class="loading muted" style="padding:20px">Loading…</div>`;
+  $("#dx").onclick = closeDrawer;
+  let m; try { m = await rpc("dashboard_sku_store_matrix",{p_style:style,p_colour:colour||null,d_from:a,d_to:b}); } catch(e){ D.querySelector(".loading").innerHTML=`<span class="err">${esc(e.message)}</span>`; return; }
+  const cells=m.cells||[]; const sizes=[...new Set(cells.map(c=>c.size).concat((m.wh||[]).map(w=>w.size)))].sort((x,y)=>sIdx(x)-sIdx(y));
+  const stores=[...new Set(cells.map(c=>c.store_name))].sort((x,y)=>{ const sx=cells.filter(c=>c.store_name===x).reduce((t,c)=>t+c.sold,0), sy=cells.filter(c=>c.store_name===y).reduce((t,c)=>t+c.sold,0); return sy-sx; });
+  const at=(s,z)=>cells.find(c=>c.store_name===s&&c.size===z); const wh=z=>(m.wh||[]).find(w=>w.size===z)?.wh||0; const on=z=>(m.online||[]).find(w=>w.size===z)?.sold||0;
+  const name = (S.summary||[]).find(x=>x.style_code===style&&(x.colour||"")===(colour||""))?.product_name || style;
+  D.querySelector("h2").innerHTML = `${esc(name)} <span class="muted">${esc(title(colour))}</span>`;
+  D.querySelector(".loading").outerHTML = `
+    <div class="tw" style="margin-top:12px"><table><thead><tr><th>Store</th>${sizes.map(z=>`<th class="r">${esc(z)}</th>`).join("")}<th class="r">Total</th></tr></thead><tbody>
+      <tr class="grp"><td><b>Warehouse</b> <span class="muted">available</span></td>${sizes.map(z=>`<td class="r num">${wh(z)||"–"}</td>`).join("")}<td class="r num"><b>${n0(sizes.reduce((t,z)=>t+wh(z),0))}</b></td></tr>
+      <tr class="grp"><td><b>Online</b> <span class="muted">sold</span></td>${sizes.map(z=>`<td class="r num">${on(z)||"–"}</td>`).join("")}<td class="r num"><b>${n0(sizes.reduce((t,z)=>t+on(z),0))}</b></td></tr>
+      ${stores.map(s=>`<tr><td>${esc(s)}</td>${sizes.map(z=>{ const c=at(s,z); return `<td class="r num" title="sold ${c?.sold||0} · on hand ${c?.on_hand||0}${c?.in_transit?` · ${c.in_transit} in transit`:""}">${c?`<b>${c.sold||"·"}</b><span class="muted"> / ${c.on_hand}${c.in_transit?`+${c.in_transit}`:""}</span>`:""}</td>`; }).join("")}<td class="r num"><b>${n0(sizes.reduce((t,z)=>t+(at(s,z)?.sold||0),0))}</b><span class="muted"> / ${n0(sizes.reduce((t,z)=>t+(at(s,z)?.on_hand||0),0))}</span></td></tr>`).join("")}
+    </tbody></table></div>
+    <p class="muted" style="font-size:12px;margin-top:8px">Each cell: <b>sold</b> / on hand (+ in transit). Stores ordered by units sold in the period.</p>
+    <div class="row"><button class="btn" id="smSales" type="button">Open full sales drill-down →</button></div>`;
+  $("#smSales").onclick = () => openDrawer(key);
+}
+$("#stApply").onclick = loadStores;
+["stView","stStore"].forEach(id => $("#"+id).addEventListener("change", loadStores));
+$("#stPreset").onchange = () => { if($("#stPreset").value!=="custom") loadStores(); };
+["stSearch","stCat","stStatus"].forEach(id => $("#"+id).addEventListener("input", () => { const v=$("#stView").value; v==="store"?renderStore():v==="matrix"?renderMatrix():renderSets(); }));
+$("#stExport").onclick = () => { const v=$("#stView").value; const [a,b]=stRange();
+  if(v==="store") exportCsv(`mulmul-store-${$("#stStore").value}-${a}-to-${b}.csv`, [["product_name","Style"],["style_code","Style code"],[r=>title(r.colour),"Colour"],["category","Category"],["status","Status"],["sold","Sold"],["sold_prev","Previous period"],["on_hand","On hand"],["in_transit","In transit"],["sell_through_pct","Sell-through %"],["rate_since_launch","Units/day since launch"],["cover_days","Cover days"],["last_sale","Last sale"],["launch_date","Launched"]], S._stRows||[]);
+  else if(v==="matrix"){ const rows=S._smRows||[]; const cols=[["product_name","Style"],["style_code","Style code"],[r=>title(r.colour),"Colour"],["category","Category"],["total","Total"]].concat(Object.keys(rows[0]||{}).filter(k=>!["product_name","style_code","colour","category","total"].includes(k)).map(k=>[k,k])); exportCsv(`mulmul-store-matrix-${a}-to-${b}.csv`, cols, rows); }
+  else exportCsv(`mulmul-set-completion-${$("#stStore").value||"all"}.csv`, [["top_name","Top"],["bottom_name","Bottom"],["dupatta_name","Dupatta"],[r=>title(r.colour),"Colour"],["store_name","Store"],["complete_sets","Complete sets"],["complete_sizes","Complete sizes"],["missing_bottom","Top without bottom"],["missing_top","Bottom without top"],["no_dupatta_sizes","No dupatta"],["sold_30","Sold 30d"]], S._setRows||[]); };
+document.querySelector('nav button[data-tab="stores"]').addEventListener("click", () => { if(!S.st && !S.sm && !S.sets) loadStores(); });
 document.querySelector('nav button[data-tab="dist"]').addEventListener("click", () => { if(!S.dist) loadDist(); });
 document.querySelector('nav button[data-tab="inwards"]').addEventListener("click", () => { if(!S.inwards) { const [a,b]=inRange(); $("#inFrom").value=a; $("#inTo").value=b; loadInwards(); } });
 
