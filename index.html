@@ -101,6 +101,7 @@ h2 small{display:block;color:var(--muted);font-weight:500;font-size:13px;letter-
 .tw{overflow:auto;border-radius:var(--r);border:1px solid var(--line);background:var(--card);max-height:calc(100vh - 120px)}
 table{width:100%;border-collapse:separate;border-spacing:0;background:var(--card);font-size:13px}
 th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap}
+td:has(.sz){white-space:normal;max-width:320px;line-height:1.7}
 thead th{position:sticky;top:0;z-index:2;font-weight:600;color:var(--muted);font-size:11.5px;background:var(--soft2);cursor:pointer;user-select:none;letter-spacing:.01em}
 th.r,td.r{text-align:right}
 tbody tr:last-child td{border-bottom:0}
@@ -110,6 +111,10 @@ td b{font-weight:700}
 tr.grp td{background:var(--soft);border-top:2px solid var(--line);font-size:12.5px}
 tfoot td{color:var(--muted);font-size:12px;background:var(--soft2)}
 table.matrix th,table.matrix td{padding:6px 7px;font-size:12px}
+.sz{display:inline-flex;align-items:baseline;gap:3px;padding:1px 6px;border-radius:5px;background:var(--soft);font-size:11.5px;margin:1px 3px 1px 0;font-variant-numeric:tabular-nums}
+.sz b{font-weight:700}.sz i{font-style:normal;color:var(--muted)}
+.sz.out{text-decoration:line-through;color:var(--muted);background:transparent;border:1px dashed var(--line)}
+.sz.dim{background:transparent;border:1px dashed var(--line);color:var(--muted)}
 table.matrix thead th{white-space:normal;line-height:1.2;vertical-align:bottom}
 
 .thumb{width:34px;height:44px;object-fit:cover;border-radius:4px;background:var(--soft);display:block}
@@ -1052,6 +1057,7 @@ async function loadStores(){
 }
 const termsOf = v => v.split(/\s*[-,|]\s*|\s{2,}/).map(t=>t.trim().toLowerCase()).filter(Boolean);
 const matchTerms = (h, terms) => !terms.length || (terms.length===1 ? h.includes(terms[0]) : terms.some(t => new RegExp(`(^|[^a-z0-9])${t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")}([^a-z0-9]|$)`).test(h)));
+const sizeChips = sz => (sz||[]).map(z => z.on_hand>0 ? `<span class="sz"><b>${esc(z.size)}</b> ${z.on_hand}${z.in_transit?`<i>+${z.in_transit}</i>`:""}</span>` : z.in_transit>0 ? `<span class="sz dim"><b>${esc(z.size)}</b> <i>+${z.in_transit}</i></span>` : `<span class="sz out" title="sold out here">${esc(z.size)}</span>`).join("") || `<span class="muted">–</span>`;
 function renderStore(){
   const st=S.st; if(!st) return; const k=st.kpi||{}, rows0=st.rows||[];
   fillSelect($("#stCat"), rows0.map(r=>r.category), "All categories");
@@ -1078,8 +1084,8 @@ function renderStore(){
       <div class="chart"><h3>Sizes — sold vs on hand</h3><div class="legend"><span><i style="background:var(--online)"></i>Sold</span><span><i style="background:var(--store)"></i>On hand</span></div>${barsSvg(sizes,{h:180})}</div>
       <div class="chart"><h3>Top 10 here</h3><div class="tw" style="border:0"><table><tbody>${rows0.slice(0,10).map(r=>`<tr class="click" data-k="${esc(r.style_code)}|${esc(r.colour||"")}"><td><b>${esc(r.product_name)}</b> <span class="muted">${esc(title(r.colour))}</span></td><td class="r num"><b>${n0(r.sold)}</b></td><td class="r num muted">${n0(r.on_hand)} oh</td></tr>`).join("")}</tbody></table></div></div>
     </div>
-    <div class="tw" style="margin-top:12px"><table id="stTable"><thead><tr><th>Style</th><th>Colour</th><th>Category</th><th>Status</th><th class="r">Sold</th><th class="r" title="same length period before">Prev</th><th class="r">On hand</th><th class="r">Transit</th><th class="r" title="sold ÷ (sold + on hand)">Sell-thru</th><th class="r" title="units per day since launch at this store">/day</th><th class="r">Cover</th><th>Last sale</th><th>Launched</th></tr></thead><tbody>${
-      rows.map(r=>`<tr class="click" data-k="${esc(r.style_code)}|${esc(r.colour||"")}"><td><b>${esc(r.product_name||"")}</b><br><span class="muted num" style="font-size:11px">${esc(r.style_code)}</span></td><td>${esc(title(r.colour))}</td><td class="muted">${esc(r.category||"")}</td><td>${chip(r.status)}</td><td class="r num"><b>${n0(r.sold)}</b></td><td class="r num muted">${n0(r.sold_prev)}</td><td class="r num">${n0(r.on_hand)}</td><td class="r num muted">${r.in_transit||"–"}</td><td class="r num">${r.sell_through_pct!=null?r.sell_through_pct+"%":"–"}</td><td class="r num">${r.rate_since_launch||"–"}</td><td class="r num ${r.cover_days!=null&&r.cover_days>90?"err":""}">${r.cover_days!=null?r.cover_days+"d":"–"}</td><td class="num">${r.last_sale?d(r.last_sale):"<span class='muted'>never</span>"}</td><td class="num muted">${r.launch_date?d(r.launch_date):""}</td></tr>`).join("") || `<tr><td class="empty" colspan="13">Nothing matches</td></tr>`}</tbody></table></div>`;
+    <div class="tw" style="margin-top:12px"><table id="stTable"><thead><tr><th>Style</th><th>Colour</th><th>Category</th><th>Status</th><th class="r">Sold</th><th class="r" title="same length period before">Prev</th><th class="r">On hand</th><th title="sizes on the shelf now: size qty · sold-out sizes struck through (sold in period, nothing left)">Sizes on hand</th><th class="r">Transit</th><th class="r" title="sold ÷ (sold + on hand)">Sell-thru</th><th class="r" title="units per day since launch at this store">/day</th><th class="r">Cover</th><th>Last sale</th><th>Launched</th></tr></thead><tbody>${
+      rows.map(r=>`<tr class="click" data-k="${esc(r.style_code)}|${esc(r.colour||"")}"><td><b>${esc(r.product_name||"")}</b><br><span class="muted num" style="font-size:11px">${esc(r.style_code)}</span></td><td>${esc(title(r.colour))}</td><td class="muted">${esc(r.category||"")}</td><td>${chip(r.status)}</td><td class="r num"><b>${n0(r.sold)}</b></td><td class="r num muted">${n0(r.sold_prev)}</td><td class="r num">${n0(r.on_hand)}</td><td>${sizeChips(r.sizes)}</td><td class="r num muted">${r.in_transit||"–"}</td><td class="r num">${r.sell_through_pct!=null?r.sell_through_pct+"%":"–"}</td><td class="r num">${r.rate_since_launch||"–"}</td><td class="r num ${r.cover_days!=null&&r.cover_days>90?"err":""}">${r.cover_days!=null?r.cover_days+"d":"–"}</td><td class="num">${r.last_sale?d(r.last_sale):"<span class='muted'>never</span>"}</td><td class="num muted">${r.launch_date?d(r.launch_date):""}</td></tr>`).join("") || `<tr><td class="empty" colspan="13">Nothing matches</td></tr>`}</tbody></table></div>`;
   $("#stBody").querySelectorAll("tr.click").forEach(tr => tr.onclick = () => openSkuMatrix(tr.dataset.k));
 }
 function renderMatrix(){
@@ -1139,7 +1145,7 @@ $("#stApply").onclick = loadStores;
 $("#stPreset").onchange = () => { if($("#stPreset").value!=="custom") loadStores(); };
 ["stSearch","stCat","stStatus"].forEach(id => $("#"+id).addEventListener("input", () => { const v=$("#stView").value; v==="store"?renderStore():v==="matrix"?renderMatrix():renderSets(); }));
 $("#stExport").onclick = () => { const v=$("#stView").value; const [a,b]=stRange();
-  if(v==="store") exportCsv(`mulmul-store-${$("#stStore").value}-${a}-to-${b}.csv`, [["product_name","Style"],["style_code","Style code"],[r=>title(r.colour),"Colour"],["category","Category"],["status","Status"],["sold","Sold"],["sold_prev","Previous period"],["on_hand","On hand"],["in_transit","In transit"],["sell_through_pct","Sell-through %"],["rate_since_launch","Units/day since launch"],["cover_days","Cover days"],["last_sale","Last sale"],["launch_date","Launched"]], S._stRows||[]);
+  if(v==="store") exportCsv(`mulmul-store-${$("#stStore").value}-${a}-to-${b}.csv`, [["product_name","Style"],["style_code","Style code"],[r=>title(r.colour),"Colour"],["category","Category"],["status","Status"],["sold","Sold"],["sold_prev","Previous period"],["on_hand","On hand"],[r=>(r.sizes||[]).filter(z=>z.on_hand>0).map(z=>`${z.size}:${z.on_hand}`).join(" "),"Sizes on hand"],[r=>(r.sizes||[]).filter(z=>z.sold>0).map(z=>`${z.size}:${z.sold}`).join(" "),"Sizes sold"],["in_transit","In transit"],["sell_through_pct","Sell-through %"],["rate_since_launch","Units/day since launch"],["cover_days","Cover days"],["last_sale","Last sale"],["launch_date","Launched"]], S._stRows||[]);
   else if(v==="matrix"){ const rows=S._smRows||[]; const cols=[["product_name","Style"],["style_code","Style code"],[r=>title(r.colour),"Colour"],["category","Category"],["total","Total"]].concat(Object.keys(rows[0]||{}).filter(k=>!["product_name","style_code","colour","category","total"].includes(k)).map(k=>[k,k])); exportCsv(`mulmul-store-matrix-${a}-to-${b}.csv`, cols, rows); }
   else exportCsv(`mulmul-set-completion-${$("#stStore").value||"all"}.csv`, [["top_name","Top"],["bottom_name","Bottom"],["dupatta_name","Dupatta"],[r=>title(r.colour),"Colour"],["store_name","Store"],["complete_sets","Complete sets"],["complete_sizes","Complete sizes"],["missing_bottom","Top without bottom"],["missing_top","Bottom without top"],["no_dupatta_sizes","No dupatta"],["sold_30","Sold 30d"]], S._setRows||[]); };
 document.querySelector('nav button[data-tab="stores"]').addEventListener("click", () => { if(!S.st && !S.sm && !S.sets) loadStores(); });
